@@ -9,7 +9,15 @@
 
 using namespace std;
 
-static volatile bool isDone = false;
+static const int RUN_DURATION_SECONDS = 15;
+static const int PRODUCER_COUNT=30;
+static const int PRODUCER_WORKTIME_MILLIS = 250;
+
+static const int CONSUMER_COUNT=10;
+static const int CONSUMER_WORKTIME_MILLIS = 1;
+
+static volatile bool isProducerDone = false;
+static volatile bool isConsumerDone = false;
 
 mutex queue_access;
 mutex wake_up;
@@ -23,8 +31,8 @@ void producer(int id) {
     int i = 0;
     int count = 0;
 
-    while (!isDone) {
-        this_thread::sleep_for(chrono::milliseconds(250));
+    while (!isProducerDone) {
+        this_thread::sleep_for(chrono::milliseconds(PRODUCER_WORKTIME_MILLIS));
 
         {
             lock_guard<mutex> lk(queue_access);
@@ -46,45 +54,71 @@ void consumer(int id) {
     int i = 0;
     do {
         unique_lock<mutex> lk(wake_up);
-        cv.wait(lk, [] { return !que.empty() || isDone; });
+        cv.wait(lk, [] { return !que.empty() || isProducerDone; });
 
         if (!que.empty()) {
             lock_guard<mutex> lk2(queue_access);
-            i = que.front();
-            que.pop();
-            cout << "Cosumer #" << id << ": " << i << ", "
-                 << "queue size: " << que.size() << "\n";
-            this_thread::sleep_for(chrono::milliseconds(1));
+	    do {
+                i = que.front();
+                que.pop();
+                cout << "Consumer #" << id << ": " << i << ", "
+                     << "queue size: " << que.size() << "\n";
+	    } while(isProducerDone && !que.empty()); // If producers done, drain the queue.
+            this_thread::sleep_for(chrono::milliseconds(CONSUMER_WORKTIME_MILLIS));
         }
 
         lk.unlock();
-    } while (!isDone);
+    } while (!isConsumerDone);
     
     cout << "Consumer #" << id << " shutting down." << endl;
 }
 
 int main() {
-    thread p[3];
-    for(int i=0; i<3; i++){
-	p[i] = thread(&producer, i);
+    // Start the producers
+    thread p[PRODUCER_COUNT];
+    for(int i=0; i<PRODUCER_COUNT; i++){
+	p[i] = thread(&producer, i+1);
     }
 
-    thread c[10];
-    for (int i = 0; i < 10; i++) {
+    // Start the consumers
+    thread c[CONSUMER_COUNT];
+    for (int i = 0; i < CONSUMER_COUNT;  i++) {
         c[i] = thread(&consumer, i);
     }
 
-    this_thread::sleep_for(chrono::milliseconds(10*1000));
-    cout << "Terminating..." << endl;
-    isDone = true;
+    // Wait for the alloted time, then terminate.
+    this_thread::sleep_for(chrono::milliseconds(RUN_DURATION_SECONDS*1000));
 
-    for(int i=0; i<3; i++){
-	p[i].join();
+    cout << endl
+         << "**************************************************************" << endl
+         << "Terminating..." << endl
+         << "**************************************************************" << endl;
+    // Set flag to end producers, next time producers 
+    // iterate, they will exit naturally.
+    isProducerDone = true;
+
+    // Wait for all producers to quit.  They don't block on a condition
+    // so they will quit first.  Remaining consumers will then 
+    // empty the queue the last time.  Ones that process items will
+    // not block and will exit when they see isDebug is true.
+    for(int i=0; i<PRODUCER_COUNT; i++){
+        p[i].join();
     }
+    // At this point the queue is no longer filled.
+
+    // Set the flag to indicate to consumers to quit after processing
+    // their last batch of work.
+    isConsumerDone = true;
+
+    // Notify all consumers waiting to stop waiting.
+    // They will see isConsumerDone is true and will exit naturally too.
     cv.notify_all();
-    for (int i = 0; i < 10; i++) {
+
+    // Wait for all consumers to quit.
+    for (int i = 0; i < CONSUMER_COUNT; i++) {
         c[i].join();
     }
+    // All worker threads exited, terminate.
     return 0;
 }
 
