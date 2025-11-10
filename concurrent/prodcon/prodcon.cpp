@@ -5,7 +5,6 @@
 #include <queue>
 #include <string>
 #include <thread>
-#include <vector>
 
 using namespace std;
 
@@ -58,16 +57,15 @@ void consumer(int id) {
 
         if (!que.empty()) {
             lock_guard<mutex> lk2(queue_access);
-	    do {
+            do {
                 i = que.front();
                 que.pop();
                 cout << "Consumer #" << id << ": " << i << ", "
                      << "queue size: " << que.size() << "\n";
-	    } while(isProducerDone && !que.empty()); // If producers done, drain the queue.
+            } while(isProducerDone && !que.empty()); // If producers done, drain the queue.
             this_thread::sleep_for(chrono::milliseconds(CONSUMER_WORKTIME_MILLIS));
         }
 
-        lk.unlock();
     } while (!isConsumerDone);
     
     cout << "Consumer #" << id << " shutting down." << endl;
@@ -83,7 +81,7 @@ int main() {
     // Start the consumers
     thread c[CONSUMER_COUNT];
     for (int i = 0; i < CONSUMER_COUNT;  i++) {
-        c[i] = thread(&consumer, i);
+        c[i] = thread(&consumer, i+1);
     }
 
     // Wait for the alloted time, then terminate.
@@ -94,7 +92,10 @@ int main() {
          << "Terminating..." << endl
          << "**************************************************************" << endl;
     // Set flag to end producers, next time producers 
-    // iterate, they will exit naturally.
+    // iterate, they will exit naturally.  It will also indicate
+    // to the consumers that shutdown has begun, and each consumer
+    // will now operate to empty the queue whenever it acquires the 
+    // condition variable lock.
     isProducerDone = true;
 
     // Wait for all producers to quit.  They don't block on a condition
@@ -118,6 +119,16 @@ int main() {
     for (int i = 0; i < CONSUMER_COUNT; i++) {
         c[i].join();
     }
+    // At this point it is highly likely but not guaranteed that the
+    // queue is empty.
+
+    // Launch one more consumer to ensure that 
+    // we have cleared out the queue.  If there's anything
+    // left in the queue it will clear it out then immediately
+    // terminate. 
+    thread cleanup = thread(&consumer, 0);
+    cleanup.join();
+
     // All worker threads exited, terminate.
     return 0;
 }
