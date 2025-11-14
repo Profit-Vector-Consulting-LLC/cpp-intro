@@ -33,19 +33,22 @@ void barberThread(int barberId, BarberShop& theShop) {
 int main() {
     BarberShop theShop(NUM_CHAIRS);
 
-    //Create barber threads (use barberThread above)
+    // Create barber threads (use barberThread above)
     std::cout << "Barber thread creation not implemented." << std::endl;
 
-    //Create customer threads (use customerThread above)
+    // Create customer threads (use customerThread above)
     std::cout << "Customer thread creation not implemented." << std::endl;
 
-    //Sleep
+    // Sleep
     std::cout << "Sleep not implemented." << std::endl;
 
     theShop.closeShop();
 
     // Wait for all threads to quit
 
+    std::cout << "Wait for thread termination not implemented." << std::endl;
+
+    // Done
     std::cout << "End simulation." << std::endl;
     return 0;
 } 
